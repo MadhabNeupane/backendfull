@@ -35,7 +35,7 @@ const uploader = multer({
 const storeSchema = new mongoose.Schema({
   file_url: { type: String, required: true }
 });
-const Store = mongoose.model('Store', storeSchema);
+const book = mongoose.model('book', bookSchema);
 
 // Cloudinary file upload helper
 const uploadFileToCloudinary = async (filePath) => {
@@ -59,10 +59,10 @@ app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
     const upload = await uploadFileToCloudinary(req.file.path);
 
     // Save file URL in the database
-    const store = new Store({
+    const book = new book({
       file_url: upload.secure_url,
     });
-    const record = await store.save();
+    const record = await book.save();
 
     res.status(200).json({ success: true, msg: 'File uploaded successfully!', data: record });
   } catch (error) {
@@ -70,9 +70,9 @@ app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
   }
 });
 // Route to fetch all file URLs
-app.get('/stores', async (req, res) => {
+app.get('/books', async (req, res) => {
   try {
-    const files = await Store.find(); // Fetch all documents from the collection
+    const files = await Book.find(); // Fetch all documents from the collection
     res.status(200).json({ success: true, data: files });
   } catch (error) {
     res.status(500).json({ success: false, msg: error.message });
