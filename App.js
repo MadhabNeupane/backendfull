@@ -32,7 +32,7 @@ const uploader = multer({
 });
 
 // Mongoose Schema and Model for Store
-const storeSchema = new mongoose.Schema({
+const bookSchema = new mongoose.Schema({
   file_url: { type: String, required: true }
 });
 const book = mongoose.model('book', bookSchema);
