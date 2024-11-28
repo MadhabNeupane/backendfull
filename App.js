@@ -5,6 +5,7 @@ const path = require('path');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
+const fs = require('fs');
 
 // Cloudinary configuration
 cloudinary.config({ 
@@ -17,8 +18,9 @@ cloudinary.config({
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-}).then(() => console.log('Connected to MongoDB Atlas'))
-  .catch(err => console.error('MongoDB connection error:', err));
+})
+  .then(() => console.log('Connected to MongoDB Atlas'))
+  .catch(err => console.error('MongoDB connection error:', err.message));
 
 // Express setup
 const app = express();
@@ -28,14 +30,24 @@ app.use(express.static(path.resolve(__dirname, 'public')));
 // Multer setup for file uploads
 const uploader = multer({
   storage: multer.diskStorage({}),
-  limits: { fileSize: 5 * 1024 * 1024 }, // Set limit to 5 MB
+  fileFilter: (req, file, cb) => {
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      return cb(new Error('Only JPG, PNG, or PDF files are allowed!'), false);
+    }
+    cb(null, true);
+  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB limit
 });
 
 // Mongoose Schema and Model for Store
 const bookSchema = new mongoose.Schema({
-  file_url: { type: String, required: true }
+  file_url: { type: String, required: true },
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  quantity: { type: Number, required: true },
 });
-const Book = mongoose.model('Book', bookSchema); // Capitalize model name
+const Book = mongoose.model('Book', bookSchema);
 
 // Cloudinary file upload helper
 const uploadFileToCloudinary = async (filePath) => {
@@ -43,7 +55,7 @@ const uploadFileToCloudinary = async (filePath) => {
     const result = await cloudinary.uploader.upload(filePath);
     return result;
   } catch (error) {
-    console.log(error.message);
+    console.error('Cloudinary upload error:', error.message);
     throw error;
   }
 };
@@ -59,10 +71,20 @@ app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
     const upload = await uploadFileToCloudinary(req.file.path);
 
     // Save file URL in the database
-    const newBook = new Book({ // Avoid conflict by using a unique variable name
+    const { name, price, quantity } = req.body; // Expecting these from the request body
+    const newBook = new Book({
       file_url: upload.secure_url,
+      name,
+      price,
+      quantity,
     });
+
     const record = await newBook.save();
+
+    // Cleanup uploaded file
+    fs.unlink(req.file.path, (err) => {
+      if (err) console.error('File deletion error:', err.message);
+    });
 
     res.status(200).json({ success: true, msg: 'File uploaded successfully!', data: record });
   } catch (error) {
@@ -70,11 +92,11 @@ app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
   }
 });
 
-// Route to fetch all file URLs
+// Route to fetch all books
 app.get('/books', async (req, res) => {
   try {
-    const files = await Book.find(); // Ensure the model name matches
-    res.status(200).json({ success: true, data: files });
+    const books = await Book.find();
+    res.status(200).json({ success: true, data: books });
   } catch (error) {
     res.status(500).json({ success: false, msg: error.message });
   }
