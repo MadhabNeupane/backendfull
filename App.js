@@ -1,17 +1,16 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const path = require('path');
-const bodyParser = require('body-parser');
+const cors = require('cors');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
-const fs = require('fs');
+const Joi = require('joi');
 
 // Cloudinary configuration
-cloudinary.config({ 
+cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.API_KEY,
-  api_secret: process.env.API_SECRET
+  api_secret: process.env.API_SECRET,
 });
 
 // MongoDB connection
@@ -20,47 +19,92 @@ mongoose.connect(process.env.MONGO_URI, {
   useUnifiedTopology: true,
 })
   .then(() => console.log('Connected to MongoDB Atlas'))
-  .catch(err => console.error('MongoDB connection error:', err.message));
+  .catch((err) => console.error('MongoDB connection error:', err));
 
 // Express setup
 const app = express();
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.resolve(__dirname, 'public')));
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Multer setup for file uploads
 const uploader = multer({
-  storage: multer.diskStorage({}),
-  fileFilter: (req, file, cb) => {
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'application/pdf'];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      return cb(new Error('Only JPG, PNG, or PDF files are allowed!'), false);
-    }
-    cb(null, true);
-  },
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB limit
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
 });
 
-// Mongoose Schema and Model for Store
-const bookSchema = new mongoose.Schema({
+// Mongoose Schema and Models
+const storeSchema = new mongoose.Schema({
   file_url: { type: String, required: true },
+});
+const Store = mongoose.model('Store', storeSchema);
+
+const bookSchema = new mongoose.Schema({
   name: { type: String, required: true },
   price: { type: Number, required: true },
   quantity: { type: Number, required: true },
+  description: { type: String },
+  image: { type: String }, // URL for book image
 });
 const Book = mongoose.model('Book', bookSchema);
 
-// Cloudinary file upload helper
-const uploadFileToCloudinary = async (filePath) => {
-  try {
-    const result = await cloudinary.uploader.upload(filePath);
-    return result;
-  } catch (error) {
-    console.error('Cloudinary upload error:', error.message);
-    throw error;
-  }
-};
+// Validation schema for adding or updating books
+const bookValidationSchema = Joi.object({
+  name: Joi.string().required(),
+  price: Joi.number().min(0).required(),
+  quantity: Joi.number().integer().min(0).required(),
+  description: Joi.string().optional(),
+  image: Joi.string().uri().optional(),
+});
 
-// Upload file route
+// Routes
+app.get('/books', async (req, res) => {
+  try {
+    const books = await Book.find();
+    res.json(books);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch books' });
+  }
+});
+
+app.post('/books', async (req, res) => {
+  const { error } = bookValidationSchema.validate(req.body);
+  if (error) return res.status(400).json({ error: error.details[0].message });
+
+  const { name, price, quantity, description, image } = req.body;
+
+  try {
+    let book = await Book.findOne({ name });
+    if (book) {
+      book.quantity += quantity;
+      await book.save();
+    } else {
+      book = new Book({ name, price, quantity, description, image });
+      await book.save();
+    }
+    res.json(book);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add or update book' });
+  }
+});
+
+app.post('/books/sell', async (req, res) => {
+  const { name, quantity } = req.body;
+
+  try {
+    const book = await Book.findOne({ name });
+    if (!book || book.quantity < quantity) {
+      return res.status(400).json({ error: 'Not enough stock or book unavailable' });
+    }
+
+    book.quantity -= quantity;
+    await book.save();
+    res.json(book);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to sell book' });
+  }
+});
+
 app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -68,23 +112,13 @@ app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
     }
 
     // Upload file to Cloudinary
-    const upload = await uploadFileToCloudinary(req.file.path);
+    const upload = await uploadFileToCloudinary(req.file.buffer);
 
     // Save file URL in the database
-    const { name, price, quantity } = req.body; // Expecting these from the request body
-    const newBook = new Book({
+    const store = new Store({
       file_url: upload.secure_url,
-      name,
-      price,
-      quantity,
     });
-
-    const record = await newBook.save();
-
-    // Cleanup uploaded file
-    fs.unlink(req.file.path, (err) => {
-      if (err) console.error('File deletion error:', err.message);
-    });
+    const record = await store.save();
 
     res.status(200).json({ success: true, msg: 'File uploaded successfully!', data: record });
   } catch (error) {
@@ -92,17 +126,14 @@ app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
   }
 });
 
-// Route to fetch all books
-app.get('/books', async (req, res) => {
-  try {
-    const books = await Book.find();
-    res.status(200).json({ success: true, data: books });
-  } catch (error) {
-    res.status(500).json({ success: false, msg: error.message });
-  }
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
 });
 
 // Start the app
-app.listen(3000, () => {
-  console.log('App is running on port 3000');
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`App is running on port ${PORT}`);
 });
