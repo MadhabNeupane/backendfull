@@ -69,6 +69,16 @@ app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
     res.status(500).json({ success: false, msg: error.message });
   }
 });
+// Route to fetch all file URLs
+app.get('/api/files', async (req, res) => {
+  try {
+    const files = await Store.find(); // Fetch all documents from the collection
+    res.status(200).json({ success: true, data: files });
+  } catch (error) {
+    res.status(500).json({ success: false, msg: error.message });
+  }
+});
+
 
 // Start the app
 app.listen(3000, () => {
