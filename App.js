@@ -57,6 +57,20 @@ const bookValidationSchema = Joi.object({
   image: Joi.string().uri().optional(),
 });
 
+// Function to upload a file to Cloudinary
+const uploadFileToCloudinary = async (fileBuffer) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream((error, result) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(result);
+      }
+    });
+    stream.end(fileBuffer); // Send the file buffer to the stream
+  });
+};
+
 // Routes
 app.get('/books', async (req, res) => {
   try {
