@@ -34,11 +34,6 @@ const uploader = multer({
 });
 
 // Mongoose Schema and Models
-const storeSchema = new mongoose.Schema({
-  file_url: { type: String, required: true },
-});
-const Store = mongoose.model('Store', storeSchema);
-
 const bookSchema = new mongoose.Schema({
   name: { type: String, required: true },
   price: { type: Number, required: true },
@@ -120,21 +115,34 @@ app.post('/books/sell', async (req, res) => {
 });
 
 app.post('/api/upload-file', uploader.single('file'), async (req, res) => {
+  const { name, id } = req.body;
+
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, msg: 'No file uploaded!' });
     }
 
+    if (!name || !id) {
+      return res.status(400).json({ success: false, msg: 'Book name and ID are required!' });
+    }
+
     // Upload file to Cloudinary
     const upload = await uploadFileToCloudinary(req.file.buffer);
 
-    // Save file URL in the database
-    const store = new Store({
-      file_url: upload.secure_url,
-    });
-    const record = await store.save();
+    // Save file URL and book details in the database
+    const book = await Book.findById(id); // Find book by ID
+    if (!book) {
+      return res.status(404).json({ success: false, msg: 'Book not found!' });
+    }
 
-    res.status(200).json({ success: true, msg: 'File uploaded successfully!', data: record });
+    book.image = upload.secure_url; // Update book's image URL
+    await book.save();
+
+    res.status(200).json({
+      success: true,
+      msg: 'File uploaded and book image updated successfully!',
+      data: { name: book.name, id: book._id, file_url: book.image },
+    });
   } catch (error) {
     res.status(500).json({ success: false, msg: error.message });
   }
